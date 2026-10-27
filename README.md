@@ -32,6 +32,7 @@
 7. [Service & version detection](#-service--version-detection)
 8. [OS detection & fingerprinting](#-os-detection--fingerprinting)
 9. [Timing & performance (gentle mode)](#-timing--performance--gentle-mode)
+   - [Fast scanning (two-stage method)](#-fast-scanning--two-stage-method)
 10. [NSE: the scripting engine](#-nse--the-scripting-engine)
 11. [Industrial / ICS / SCADA protocols](#-industrial--ics--scada-protocols)
 12. [IoT application protocols](#-iot-application-protocols)
@@ -289,6 +290,47 @@ nmap -sS -p- \
 > [!WARNING]
 > On ICS/SCADA and medical devices, prefer `-T2` or explicit `--scan-delay` + `--max-rate`.
 > A single PLC rebooting mid-process is a real-world safety incident, not a lab inconvenience.
+
+### ⚡ Fast scanning — two-stage method
+
+The single biggest speed win isn't a faster template — it's **not running version/script
+detection against 65535 ports.** Sweep for open ports first, then deep-scan only those.
+
+```bash
+# Stage 1 — raw-speed port discovery (no -sV, no scripts)
+sudo nmap -sS -p- -T4 --min-rate 1000 -n -Pn --open -oG ports.txt <target>
+
+# Stage 2 — heavy scan on ONLY the open ports
+ports=$(grep -oP '\d+/open' ports.txt | cut -d/ -f1 | paste -sd,)
+sudo nmap -sV -sC -O -T4 -n -Pn -p "$ports" <target>
+```
+
+**All-in-one aggressive** (`-A` = `-O -sV -sC --traceroute`; scans top 1000 ports only):
+
+```bash
+sudo nmap -A -T4 -Pn -n --open <target>
+```
+
+**Shortest useful fast scan** (top 100 ports, with versions):
+
+```bash
+sudo nmap -sV -T4 -F -n -Pn --open <target>
+```
+
+| Speed flag | Effect |
+|---|---|
+| `-T4` | Aggressive timing template |
+| `--min-rate 1000` | Force ≥1000 pkt/s (overrides template when net allows) |
+| `-n` | Skip reverse-DNS — saves time on every host |
+| `-F` | Fast mode: top 100 ports instead of 1000 |
+| `--top-ports N` | Scan the N most common ports only |
+| `--open` | Process/report open ports only |
+| `-A` | Bundle OS + version + default scripts + traceroute |
+
+> [!WARNING]
+> `-T4 --min-rate 1000` is for robust embedded Linux, **not** fragile IoT or ICS. On a brittle
+> stack it causes false `filtered` results or hangs. Drop to `-T3`/`-T2` and `--min-rate 300`
+> if results look wrong or the device gets flaky. Never exceed `-T2` on a PLC.
 
 ---
 
